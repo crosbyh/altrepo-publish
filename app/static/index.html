@@ -54,6 +54,22 @@
   .divider { color: var(--muted); font-size: 13px; }
   .status-line { font-size: 13px; color: var(--muted); width: 100%; }
   .status-line.err { color: var(--danger); }
+  #progress-track {
+    display: none; width: 100%; height: 4px; border-radius: 2px;
+    background: var(--chip); overflow: hidden;
+  }
+  #progress-track.active { display: block; }
+  #progress-fill {
+    height: 100%; width: 0%; background: var(--accent); border-radius: 2px;
+    transition: width 0.15s linear;
+  }
+  #progress-track.indeterminate #progress-fill {
+    width: 30%; animation: prog-slide 1.1s ease-in-out infinite;
+  }
+  @keyframes prog-slide {
+    from { margin-left: -30%; }
+    to { margin-left: 100%; }
+  }
   .tracker-rows { width: 100%; display: flex; flex-direction: column; gap: 4px; }
   .trow {
     display: flex; align-items: center; gap: 8px; font-size: 13px;
@@ -152,6 +168,7 @@
     <input type="url" id="fetch-url" placeholder="https://example.com/app.ipa">
     <button class="primary" id="fetch-btn">Fetch URL</button>
     <span class="status-line" id="add-status"></span>
+    <div id="progress-track"><div id="progress-fill"></div></div>
   </div>
 
   <div class="box writable-only">
@@ -266,9 +283,19 @@ $("grid").addEventListener("click", async e => {
   }
 });
 
+const bar = {
+  el: () => $("progress-track"),
+  set(pct) { this.el().className = "active"; $("progress-fill").style.width = pct + "%"; },
+  indeterminate() { this.el().className = "active indeterminate"; },
+  stop() { this.el().className = ""; $("progress-fill").style.width = "0%"; },
+};
+
+const setAddButtons = disabled =>
+  [$("upload-btn"), $("fetch-btn")].forEach(b => (b.disabled = disabled));
+
 async function submitApp(request) {
-  const buttons = [$("upload-btn"), $("fetch-btn")];
-  buttons.forEach(b => (b.disabled = true));
+  setAddButtons(true);
+  bar.indeterminate();
   try {
     const resp = await request;
     const data = await resp.json();
@@ -279,16 +306,68 @@ async function submitApp(request) {
   } catch (e) {
     setStatus("add-status", e.message, true);
   } finally {
-    buttons.forEach(b => (b.disabled = false));
+    bar.stop();
+    setAddButtons(false);
   }
 }
 
-async function uploadFiles(files) {
-  for (const file of files) {
-    setStatus("add-status", `Uploading ${file.name}…`);
+function uploadWithProgress(file, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "api/upload");
+    xhr.responseType = "json";
+    xhr.upload.onprogress = e => {
+      if (e.lengthComputable) onProgress(e.loaded, e.total);
+    };
+    // Upload body fully sent; the server is now validating the archive.
+    xhr.upload.onloadend = () => onProgress(file.size, file.size);
+    xhr.onload = () =>
+      resolve({ ok: xhr.status >= 200 && xhr.status < 300, data: xhr.response || {} });
+    xhr.onerror = () => reject(new Error(`Network error while uploading ${file.name}`));
+    xhr.onabort = () => reject(new Error("Upload cancelled"));
     const form = new FormData();
     form.append("file", file);
-    await submitApp(fetch("api/upload", { method: "POST", body: form }));
+    xhr.send(form);
+  });
+}
+
+async function uploadFiles(files) {
+  setAddButtons(true);
+  try {
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const batch = files.length > 1 ? ` (${i + 1}/${files.length})` : "";
+      let lastLoaded = 0, lastTime = performance.now(), rate = 0;
+      bar.set(0);
+      setStatus("add-status", `Uploading ${file.name}${batch}…`);
+      try {
+        const { ok, data } = await uploadWithProgress(file, (loaded, total) => {
+          if (loaded >= total) {
+            bar.indeterminate();
+            setStatus("add-status", `Processing ${file.name}${batch}…`);
+            return;
+          }
+          const now = performance.now();
+          if (now - lastTime > 250) {
+            rate = (loaded - lastLoaded) / 1048576 / ((now - lastTime) / 1000);
+            lastLoaded = loaded;
+            lastTime = now;
+          }
+          const pct = Math.round((loaded / total) * 100);
+          bar.set(pct);
+          setStatus("add-status",
+            `Uploading ${file.name}${batch} — ${pct}%${rate > 0 ? ` · ${rate.toFixed(1)} MB/s` : ""}`);
+        });
+        if (!ok) throw new Error(data.detail || "Upload failed");
+        setStatus("add-status", `Added ${data.name} v${data.version}${data.replaced ? " (replaced existing)" : ""}`);
+        await load();
+      } catch (e) {
+        setStatus("add-status", e.message, true);
+      }
+    }
+  } finally {
+    bar.stop();
+    setAddButtons(false);
   }
 }
 
