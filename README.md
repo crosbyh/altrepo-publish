@@ -65,7 +65,7 @@ apps look right. Add `http://host:8080/apps.json` as a source in Feather.
 | `SOURCE_IDENTIFIER` | `local.altrepo.source` | Stable reverse-DNS ID for the source — don't change it after adding the source to devices |
 | `DEVELOPER_NAME` | `Self-hosted` | Shown as each app's developer |
 | `PUBLIC_URL` | *(derived from request)* | Force the base URL used in `apps.json`. Normally unnecessary: the server honors `X-Forwarded-Proto`/`X-Forwarded-Host` from your proxy |
-| `DATA_DIR` | `/data` | Folder scanned for `.ipa` files. With a host bind mount, the folder must be writable by uid 1000 for web-UI adds/trackers to work (or add `:ro` to disable them) |
+| `DATA_DIR` | `/data` | Folder scanned for `.ipa` files. With a host bind mount, the folder must be writable by the container user for web-UI adds/trackers to work (or add `:ro` to disable them). The container defaults to uid 1000; set `user:` in compose to match your folder's owner (e.g. `user: "99:100"` on Unraid) |
 | `CACHE_DIR` | `/cache` | Extracted-icon cache (needs write access) |
 | `KEEP_VERSIONS` | `0` | Keep only the newest N versions per app, deleting older IPAs on scan. `0` keeps everything |
 | `TRACKER_INTERVAL_HOURS` | `6` | How often to poll tracked GitHub repos for new releases. `0` disables background polling ("Check now" still works) |

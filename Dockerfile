@@ -7,9 +7,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
 
+# World-writable /data and /cache so the container works under any
+# uid:gid override (e.g. user: "99:100" on Unraid), not just the default.
 RUN useradd -r -u 1000 -m altrepo \
     && mkdir -p /data /cache \
-    && chown altrepo /data /cache
+    && chown altrepo /data /cache \
+    && chmod 0777 /data /cache
 USER altrepo
 
 ENV DATA_DIR=/data CACHE_DIR=/cache

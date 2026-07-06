@@ -4,6 +4,8 @@ services:
     container_name: altrepo
     pull_policy: always
     restart: unless-stopped
+    # user: "99:100"  # run as your host's owner of the IPA folder
+    #                 # (99:100 = nobody:users on Unraid)
     ports:
       - "8080:8080"
     volumes:
