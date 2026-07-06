@@ -7,12 +7,12 @@
 <style>
   :root {
     --bg: #f5f5f7; --card: #ffffff; --text: #1d1d1f; --muted: #6e6e73;
-    --accent: #635bff; --border: #e3e3e8; --chip: #eeeef2;
+    --accent: #635bff; --border: #e3e3e8; --chip: #eeeef2; --danger: #d66;
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --bg: #101014; --card: #1b1b21; --text: #f2f2f5; --muted: #9a9aa3;
-      --accent: #8b85ff; --border: #2a2a32; --chip: #26262e;
+      --accent: #8b85ff; --border: #2a2a32; --chip: #26262e; --danger: #e88;
     }
   }
   * { box-sizing: border-box; }
@@ -24,48 +24,57 @@
   header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
   h1 { font-size: 24px; margin: 0; }
   .muted { color: var(--muted); }
-  .source-url {
-    display: flex; align-items: center; gap: 8px; margin: 20px 0 28px;
+  .box {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
     background: var(--card); border: 1px solid var(--border);
-    border-radius: 10px; padding: 10px 14px;
+    border-radius: 10px; padding: 10px 14px; margin-top: 14px;
   }
-  .source-url code {
-    flex: 1; overflow-x: auto; white-space: nowrap; font-size: 13px;
-  }
-  .source-url button {
-    border: 0; background: var(--accent); color: #fff; border-radius: 7px;
-    padding: 6px 14px; font-size: 13px; font-weight: 600; cursor: pointer;
-  }
-  .add-box {
-    display: none; flex-wrap: wrap; align-items: center; gap: 10px;
-    background: var(--card); border: 1px solid var(--border);
-    border-radius: 10px; padding: 10px 14px; margin: 0 0 28px;
-  }
-  .add-box.writable { display: flex; }
-  .add-box .divider { color: var(--muted); font-size: 13px; }
-  .add-box input[type="url"] {
-    flex: 1; min-width: 180px; background: var(--chip); color: var(--text);
+  .box:first-of-type { margin-top: 20px; }
+  .box .label { font-size: 13px; color: var(--muted); }
+  .box code { flex: 1; overflow-x: auto; white-space: nowrap; font-size: 13px; }
+  .box input[type="url"], .box input[type="text"] {
+    flex: 1; min-width: 140px; background: var(--chip); color: var(--text);
     border: 1px solid var(--border); border-radius: 7px; padding: 6px 10px;
     font-size: 13px;
   }
-  .add-box button {
+  button.primary {
     border: 0; background: var(--accent); color: #fff; border-radius: 7px;
     padding: 6px 14px; font-size: 13px; font-weight: 600; cursor: pointer;
   }
-  .add-box button:disabled { opacity: 0.5; cursor: default; }
-  #add-status { font-size: 13px; color: var(--muted); width: 100%; }
-  #add-status.err { color: #d66; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+  button.primary:disabled { opacity: 0.5; cursor: default; }
+  .writable-only { display: none !important; }
+  body.writable .writable-only { display: flex !important; }
+  #qr-panel {
+    display: none; justify-content: center; width: 100%; padding: 8px 0;
+  }
+  #qr-panel.open { display: flex; }
+  #qr-panel img {
+    width: 220px; height: 220px; background: #fff; border-radius: 10px;
+  }
+  .divider { color: var(--muted); font-size: 13px; }
+  .status-line { font-size: 13px; color: var(--muted); width: 100%; }
+  .status-line.err { color: var(--danger); }
+  .tracker-rows { width: 100%; display: flex; flex-direction: column; gap: 4px; }
+  .trow {
+    display: flex; align-items: center; gap: 8px; font-size: 13px;
+    border-top: 1px solid var(--border); padding-top: 6px;
+  }
+  .trow .err-text { color: var(--danger); }
+  .grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 14px; margin-top: 28px;
+  }
   .card {
     background: var(--card); border: 1px solid var(--border);
     border-radius: 14px; padding: 16px; display: flex; gap: 14px;
+    position: relative;
   }
-  .card img {
+  .card img.appicon {
     width: 64px; height: 64px; border-radius: 14px; flex-shrink: 0;
     background: var(--chip); object-fit: cover;
   }
-  .card .info { min-width: 0; }
-  .card h2 { font-size: 16px; margin: 0 0 2px; }
+  .card .info { min-width: 0; flex: 1; }
+  .card h2 { font-size: 16px; margin: 0 0 2px; padding-right: 18px; }
   .bundle {
     font-size: 12px; color: var(--muted); overflow: hidden;
     text-overflow: ellipsis; white-space: nowrap;
@@ -77,127 +86,222 @@
   }
   .chip.version { color: var(--accent); font-weight: 600; }
   .card a { color: var(--accent); font-size: 13px; text-decoration: none; }
+  .card a.danger { color: var(--danger); }
+  .card .del-app {
+    position: absolute; top: 10px; right: 12px; border: 0; background: none;
+    color: var(--muted); font-size: 16px; cursor: pointer; display: none;
+    line-height: 1; padding: 2px 4px;
+  }
+  body.writable .card .del-app { display: block; }
+  .card .del-app:hover { color: var(--danger); }
+  details.versions { margin-top: 8px; font-size: 13px; }
+  details.versions summary {
+    cursor: pointer; color: var(--muted); font-size: 12px;
+    list-style: none; user-select: none;
+  }
+  details.versions summary::before { content: "▸ "; }
+  details.versions[open] summary::before { content: "▾ "; }
+  .vrow {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    border-top: 1px solid var(--border); padding: 5px 0;
+  }
+  .vrow a.danger { display: none; }
+  body.writable .vrow a.danger { display: inline; }
   .empty, .error-box {
     background: var(--card); border: 1px dashed var(--border);
     border-radius: 14px; padding: 40px; text-align: center; color: var(--muted);
+    margin-top: 28px;
   }
-  .error-box { border-color: #d66; color: #d66; text-align: left; padding: 14px 18px; margin-bottom: 16px; }
+  .error-box {
+    border-color: var(--danger); color: var(--danger); text-align: left;
+    padding: 14px 18px;
+  }
+  #drop-overlay {
+    display: none; position: fixed; inset: 0; z-index: 10;
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
+    border: 3px dashed var(--accent); border-radius: 16px;
+    align-items: center; justify-content: center;
+    font-size: 22px; font-weight: 700; color: var(--accent);
+    pointer-events: none;
+  }
+  #drop-overlay.active { display: flex; }
   footer { margin-top: 36px; font-size: 13px; color: var(--muted); }
 </style>
 </head>
 <body>
+<div id="drop-overlay">Drop .ipa files to add them</div>
 <div class="wrap">
   <header>
     <h1 id="source-name">…</h1>
     <span class="muted" id="counts"></span>
   </header>
-  <div class="source-url">
-    <span class="muted" style="font-size:13px">Source&nbsp;URL</span>
+
+  <div class="box">
+    <span class="label">Source&nbsp;URL</span>
     <code id="source-url"></code>
-    <button id="copy-btn">Copy</button>
+    <button class="primary" id="copy-btn">Copy</button>
+    <button class="primary" id="qr-btn">QR</button>
+    <div id="qr-panel"><img src="qr.svg" alt="QR code of the source URL"></div>
   </div>
-  <div class="add-box" id="add-box">
-    <span class="muted" style="font-size:13px">Add&nbsp;app</span>
-    <input type="file" id="file-input" accept=".ipa" hidden>
-    <button id="upload-btn">Upload .ipa</button>
+
+  <div class="box writable-only">
+    <span class="label">Add&nbsp;app</span>
+    <input type="file" id="file-input" accept=".ipa" multiple hidden>
+    <button class="primary" id="upload-btn">Upload .ipa</button>
     <span class="divider">or</span>
     <input type="url" id="fetch-url" placeholder="https://example.com/app.ipa">
-    <button id="fetch-btn">Fetch URL</button>
-    <span id="add-status"></span>
+    <button class="primary" id="fetch-btn">Fetch URL</button>
+    <span class="status-line" id="add-status"></span>
   </div>
+
+  <div class="box writable-only">
+    <span class="label">Track&nbsp;GitHub</span>
+    <input type="text" id="tracker-repo" placeholder="owner/repo">
+    <input type="text" id="tracker-pattern" placeholder="asset regex (optional)">
+    <button class="primary" id="tracker-add">Track</button>
+    <button class="primary" id="tracker-check">Check now</button>
+    <span class="status-line" id="tracker-status"></span>
+    <div class="tracker-rows" id="tracker-rows"></div>
+  </div>
+
   <div id="errors"></div>
   <div class="grid" id="grid"></div>
   <footer id="footer"></footer>
 </div>
 <script>
 const fmtSize = b => b > 1048576 ? (b / 1048576).toFixed(1) + " MB" : (b / 1024).toFixed(0) + " KB";
-const esc = s => s.replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const esc = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const $ = id => document.getElementById(id);
+let currentSource = null;
+
+const setStatus = (id, msg, isErr = false) => {
+  const el = $(id);
+  el.textContent = msg;
+  el.className = "status-line" + (isErr ? " err" : "");
+};
 
 async function load() {
   const [status, source] = await Promise.all([
     fetch("api/status").then(r => r.json()),
     fetch("apps.json").then(r => r.json()),
   ]);
-  document.title = status.sourceName;
-  document.getElementById("source-name").textContent = status.sourceName;
-  document.getElementById("add-box").classList.toggle("writable", !!status.writable);
-  document.getElementById("counts").textContent =
+  currentSource = source;
+  document.title = source.name;
+  $("source-name").textContent = source.name;
+  $("counts").textContent =
     `${status.appCount} app${status.appCount === 1 ? "" : "s"} · ${status.ipaCount} IPA${status.ipaCount === 1 ? "" : "s"}`;
-  document.getElementById("source-url").textContent = status.sourceURL;
+  $("source-url").textContent = status.sourceURL;
+  document.body.classList.toggle("writable", !!status.writable);
 
   const errNames = Object.keys(status.errors || {});
-  document.getElementById("errors").innerHTML = errNames.length
+  $("errors").innerHTML = errNames.length
     ? `<div class="error-box">Skipped: ${errNames.map(n => `<b>${esc(n)}</b> — ${esc(status.errors[n])}`).join("<br>")}</div>`
     : "";
 
-  const grid = document.getElementById("grid");
+  const grid = $("grid");
   if (!source.apps.length) {
-    grid.innerHTML = `<div class="empty" style="grid-column:1/-1">No IPAs found yet.<br>Drop <code>.ipa</code> files into the data folder and refresh.</div>`;
+    grid.innerHTML = `<div class="empty" style="grid-column:1/-1">No IPAs found yet.<br>Drop <code>.ipa</code> files anywhere on this page, or use the buttons above.</div>`;
   } else {
-    grid.innerHTML = source.apps.map(app => {
+    grid.innerHTML = source.apps.map((app, idx) => {
       const latest = app.versions[0];
-      const older = app.versions.length - 1;
+      const rows = app.versions.map(v => `
+        <div class="vrow">
+          <span class="chip version">v${esc(v.version)}</span>
+          <span class="chip">${fmtSize(v.size)}</span>
+          <span class="chip">${esc(v.date)}</span>
+          <a href="${esc(v.downloadURL)}">Download</a>
+          <a href="#" class="danger" data-del="${esc(fileOf(v))}">Delete</a>
+        </div>`).join("");
       return `<div class="card">
-        <img src="${esc(app.iconURL)}" alt="" loading="lazy">
+        <button class="del-app" title="Delete app and all versions" data-delapp="${idx}">✕</button>
+        <img class="appicon" src="${esc(app.iconURL)}" alt="" loading="lazy">
         <div class="info">
           <h2>${esc(app.name)}</h2>
-          <div class="bundle">${esc(app.bundleIdentifier)}</div>
+          <div class="bundle">${esc(app.subtitle || app.bundleIdentifier)}</div>
           <div class="meta">
             <span class="chip version">v${esc(latest.version)}</span>
             <span class="chip">${fmtSize(latest.size)}</span>
             <span class="chip">${esc(latest.date)}</span>
             ${latest.minOSVersion ? `<span class="chip">iOS ${esc(latest.minOSVersion)}+</span>` : ""}
-            ${older > 0 ? `<span class="chip">+${older} older</span>` : ""}
+            ${app._overridden ? `<span class="chip">customized</span>` : ""}
           </div>
-          <div class="meta"><a href="${esc(latest.downloadURL)}">Download IPA</a></div>
+          <details class="versions">
+            <summary>${app.versions.length} version${app.versions.length === 1 ? "" : "s"}</summary>
+            ${rows}
+          </details>
         </div>
       </div>`;
     }).join("");
   }
-  document.getElementById("footer").textContent =
-    status.lastScan ? `Last scanned ${new Date(status.lastScan).toLocaleString()} · add this source in Feather via the URL above` : "";
+  const prune = status.keepVersions > 0 ? ` · keeping newest ${status.keepVersions} versions per app` : "";
+  $("footer").textContent =
+    status.lastScan ? `Last scanned ${new Date(status.lastScan).toLocaleString()}${prune} · add this source in Feather via the URL above` : "";
 }
 
-const addStatus = (msg, isErr = false) => {
-  const el = document.getElementById("add-status");
-  el.textContent = msg;
-  el.className = isErr ? "err" : "";
-};
+const fileOf = v => decodeURIComponent(v.downloadURL.split("/").pop());
+
+async function delIpa(filename) {
+  const resp = await fetch(`api/ipas/${encodeURIComponent(filename)}`, { method: "DELETE" });
+  if (!resp.ok) {
+    const data = await resp.json().catch(() => ({}));
+    setStatus("add-status", data.detail || `Failed to delete ${filename}`, true);
+  }
+}
+
+$("grid").addEventListener("click", async e => {
+  const del = e.target.closest("[data-del]");
+  if (del) {
+    e.preventDefault();
+    const f = del.dataset.del;
+    if (confirm(`Delete ${f}?`)) { await delIpa(f); await load(); }
+    return;
+  }
+  const delApp = e.target.closest("[data-delapp]");
+  if (delApp) {
+    const app = currentSource.apps[Number(delApp.dataset.delapp)];
+    if (confirm(`Delete ${app.name} and all ${app.versions.length} version(s)?`)) {
+      for (const v of app.versions) await delIpa(fileOf(v));
+      await load();
+    }
+  }
+});
 
 async function submitApp(request) {
-  const buttons = [document.getElementById("upload-btn"), document.getElementById("fetch-btn")];
+  const buttons = [$("upload-btn"), $("fetch-btn")];
   buttons.forEach(b => (b.disabled = true));
   try {
     const resp = await request;
     const data = await resp.json();
     if (!resp.ok) throw new Error(data.detail || resp.statusText);
-    addStatus(`Added ${data.name} v${data.version}${data.replaced ? " (replaced existing)" : ""}`);
-    document.getElementById("fetch-url").value = "";
+    setStatus("add-status", `Added ${data.name} v${data.version}${data.replaced ? " (replaced existing)" : ""}`);
+    $("fetch-url").value = "";
     await load();
   } catch (e) {
-    addStatus(e.message, true);
+    setStatus("add-status", e.message, true);
   } finally {
     buttons.forEach(b => (b.disabled = false));
   }
 }
 
-document.getElementById("upload-btn").addEventListener("click", () =>
-  document.getElementById("file-input").click());
+async function uploadFiles(files) {
+  for (const file of files) {
+    setStatus("add-status", `Uploading ${file.name}…`);
+    const form = new FormData();
+    form.append("file", file);
+    await submitApp(fetch("api/upload", { method: "POST", body: form }));
+  }
+}
 
-document.getElementById("file-input").addEventListener("change", e => {
-  const file = e.target.files[0];
-  if (!file) return;
-  addStatus(`Uploading ${file.name}…`);
-  const form = new FormData();
-  form.append("file", file);
-  submitApp(fetch("api/upload", { method: "POST", body: form }));
+$("upload-btn").addEventListener("click", () => $("file-input").click());
+$("file-input").addEventListener("change", e => {
+  uploadFiles([...e.target.files]);
   e.target.value = "";
 });
 
-document.getElementById("fetch-btn").addEventListener("click", () => {
-  const url = document.getElementById("fetch-url").value.trim();
-  if (!url) return addStatus("Enter a URL first", true);
-  addStatus("Downloading…");
+$("fetch-btn").addEventListener("click", () => {
+  const url = $("fetch-url").value.trim();
+  if (!url) return setStatus("add-status", "Enter a URL first", true);
+  setStatus("add-status", "Downloading…");
   submitApp(fetch("api/fetch", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -205,14 +309,98 @@ document.getElementById("fetch-btn").addEventListener("click", () => {
   }));
 });
 
-document.getElementById("copy-btn").addEventListener("click", async () => {
-  await navigator.clipboard.writeText(document.getElementById("source-url").textContent);
-  const btn = document.getElementById("copy-btn");
-  btn.textContent = "Copied!";
-  setTimeout(() => (btn.textContent = "Copy"), 1500);
+// Drag-and-drop upload
+let dragDepth = 0;
+document.addEventListener("dragenter", e => {
+  if (!document.body.classList.contains("writable")) return;
+  if (![...e.dataTransfer.items].some(i => i.kind === "file")) return;
+  dragDepth++;
+  $("drop-overlay").classList.add("active");
+});
+document.addEventListener("dragleave", () => {
+  if (--dragDepth <= 0) { dragDepth = 0; $("drop-overlay").classList.remove("active"); }
+});
+document.addEventListener("dragover", e => e.preventDefault());
+document.addEventListener("drop", e => {
+  e.preventDefault();
+  dragDepth = 0;
+  $("drop-overlay").classList.remove("active");
+  if (!document.body.classList.contains("writable")) return;
+  const files = [...e.dataTransfer.files].filter(f => f.name.toLowerCase().endsWith(".ipa"));
+  if (!files.length) return setStatus("add-status", "No .ipa files in the drop", true);
+  uploadFiles(files);
+});
+
+// GitHub release trackers
+async function loadTrackers() {
+  const data = await fetch("api/trackers").then(r => r.json());
+  $("tracker-rows").innerHTML = data.trackers.map(t => `
+    <div class="trow">
+      <b>${esc(t.repo)}</b>
+      <span class="chip">${t.lastRelease ? esc(t.lastRelease) : "never checked"}</span>
+      ${t.pattern ? `<span class="chip">/${esc(t.pattern)}/</span>` : ""}
+      ${data.errors[t.repo] ? `<span class="err-text">${esc(data.errors[t.repo])}</span>` : ""}
+      <a href="#" class="danger" style="margin-left:auto;font-size:13px" data-untrack="${esc(t.repo)}">Remove</a>
+    </div>`).join("");
+}
+
+$("tracker-rows").addEventListener("click", async e => {
+  const el = e.target.closest("[data-untrack]");
+  if (!el) return;
+  e.preventDefault();
+  const repo = el.dataset.untrack;
+  if (!confirm(`Stop tracking ${repo}? (Already-downloaded IPAs are kept.)`)) return;
+  await fetch(`api/trackers/${repo}`, { method: "DELETE" });
+  await loadTrackers();
+});
+
+$("tracker-add").addEventListener("click", async () => {
+  const repo = $("tracker-repo").value.trim();
+  const pattern = $("tracker-pattern").value.trim() || null;
+  if (!repo) return setStatus("tracker-status", "Enter owner/repo first", true);
+  const resp = await fetch("api/trackers", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ repo, pattern }),
+  });
+  const data = await resp.json();
+  if (!resp.ok) return setStatus("tracker-status", data.detail || resp.statusText, true);
+  $("tracker-repo").value = ""; $("tracker-pattern").value = "";
+  setStatus("tracker-status", `Tracking ${repo} — hit "Check now" to fetch the latest release`);
+  await loadTrackers();
+});
+
+$("tracker-check").addEventListener("click", async () => {
+  const btn = $("tracker-check");
+  btn.disabled = true;
+  setStatus("tracker-status", "Checking releases…");
+  try {
+    const resp = await fetch("api/trackers/check", { method: "POST" });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.detail || resp.statusText);
+    const added = data.results.flatMap(r => r.added || []);
+    const errs = data.results.filter(r => r.status === "error");
+    setStatus("tracker-status",
+      `${data.results.length} checked · ${added.length} IPA${added.length === 1 ? "" : "s"} added` +
+      (errs.length ? ` · ${errs.length} failed` : ""), errs.length > 0);
+    await Promise.all([load(), loadTrackers()]);
+  } catch (e) {
+    setStatus("tracker-status", e.message, true);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+$("qr-btn").addEventListener("click", () => $("qr-panel").classList.toggle("open"));
+
+$("copy-btn").addEventListener("click", async () => {
+  await navigator.clipboard.writeText($("source-url").textContent);
+  $("copy-btn").textContent = "Copied!";
+  setTimeout(() => ($("copy-btn").textContent = "Copy"), 1500);
 });
 
 load();
+loadTrackers();
 </script>
 </body>
 </html>

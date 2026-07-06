@@ -13,6 +13,9 @@ services:
       SOURCE_NAME: "Crosby's Apps"
       SOURCE_IDENTIFIER: "com.crosbyhayton.altrepo"
       DEVELOPER_NAME: "Crosby Hayton"
+      # KEEP_VERSIONS: "3"           # prune to the newest 3 versions per app
+      # TRACKER_INTERVAL_HOURS: "6"  # GitHub release polling; 0 disables
+      # GITHUB_TOKEN: "ghp_..."      # optional, for rate limits/private repos
       # PUBLIC_URL: "https://apps.ts.armsaw.net"  # optional; derived from
       # forwarded headers when unset
 

@@ -7,8 +7,11 @@ re-extracts files that appeared or changed.
 """
 
 import hashlib
+import json
 import logging
+import os
 import re
+import tempfile
 import threading
 import zipfile
 import plistlib
@@ -123,13 +126,49 @@ def extract_ipa(path: Path) -> IPAInfo:
     return info
 
 
+def new_temp(data_dir: Path) -> Path:
+    """Temp file inside the library dir (same filesystem, so the final move
+    is atomic) with a suffix the scanner ignores. Raises PermissionError
+    when the library is mounted read-only."""
+    if not os.access(data_dir, os.W_OK):
+        raise PermissionError("data directory is read-only")
+    fd, name = tempfile.mkstemp(dir=data_dir, suffix=".part")
+    os.close(fd)
+    return Path(name)
+
+
+def ingest_temp(tmp: Path, data_dir: Path) -> dict:
+    """Validate a just-written temp file as an IPA and move it into the
+    library under a canonical name. Deletes the temp file on failure and
+    raises ValueError."""
+    try:
+        info = extract_ipa(tmp)
+    except Exception as exc:
+        tmp.unlink(missing_ok=True)
+        raise ValueError(str(exc)) from exc
+    safe = lambda s: re.sub(r"[^A-Za-z0-9._-]", "_", s)
+    dest = Path(data_dir) / f"{safe(info.bundle_id)}-{safe(info.version)}.ipa"
+    replaced = dest.exists()
+    os.replace(tmp, dest)
+    return {
+        "name": info.name,
+        "bundleIdentifier": info.bundle_id,
+        "version": info.version,
+        "filename": dest.name,
+        "replaced": replaced,
+    }
+
+
 class Library:
-    def __init__(self, data_dir: Path, cache_dir: Path):
+    def __init__(self, data_dir: Path, cache_dir: Path, keep_versions: int = 0):
         self.data_dir = Path(data_dir)
         self.cache_dir = Path(cache_dir)
+        self.keep_versions = keep_versions
         self._lock = threading.Lock()
         self._cache: dict[tuple, IPAInfo] = {}
         self._errors: dict[str, str] = {}
+        self.overrides: dict = {}
+        self._overrides_fp = None
         self.last_scan: Optional[datetime] = None
 
     def _fingerprints(self) -> dict[tuple, Path]:
@@ -166,7 +205,7 @@ class Library:
             self._errors = {
                 name: err
                 for name, err in self._errors.items()
-                if any(k[0] == name for k in current)
+                if not name.endswith(".ipa") or any(k[0] == name for k in current)
             }
             for key, path in current.items():
                 if key in self._cache:
@@ -179,7 +218,60 @@ class Library:
                 except Exception as exc:
                     log.warning("skipping %s: %s", path.name, exc)
                     self._errors[path.name] = str(exc)
+            self._load_overrides()
+            self._prune()
+            self._gc_icons()
             self.last_scan = datetime.now(tz=timezone.utc)
+
+    def _load_overrides(self) -> None:
+        path = self.data_dir / "overrides.json"
+        try:
+            s = path.stat()
+            fp = (s.st_size, s.st_mtime)
+        except FileNotFoundError:
+            fp = None
+        if fp == self._overrides_fp:
+            return
+        self._overrides_fp = fp
+        self.overrides = {}
+        self._errors.pop("overrides.json", None)
+        if fp is None:
+            return
+        try:
+            data = json.loads(path.read_text())
+            if not isinstance(data, dict):
+                raise ValueError("top level must be an object")
+            self.overrides = data
+        except Exception as exc:
+            log.warning("overrides.json ignored: %s", exc)
+            self._errors["overrides.json"] = str(exc)
+
+    def _prune(self) -> None:
+        if self.keep_versions <= 0 or not os.access(self.data_dir, os.W_OK):
+            return
+        groups: dict[str, list[tuple]] = {}
+        for key, info in self._cache.items():
+            groups.setdefault(info.bundle_id, []).append((key, info))
+        for entries in groups.values():
+            entries.sort(key=lambda kv: _version_sort_key(kv[1]), reverse=True)
+            for key, info in entries[self.keep_versions :]:
+                try:
+                    (self.data_dir / info.filename).unlink(missing_ok=True)
+                except OSError as exc:
+                    log.warning("prune failed for %s: %s", info.filename, exc)
+                    continue
+                del self._cache[key]
+                log.info(
+                    "pruned %s (keeping newest %d)", info.filename, self.keep_versions
+                )
+
+    def _gc_icons(self) -> None:
+        if not self.cache_dir.is_dir():
+            return
+        referenced = {i.icon_name for i in self._cache.values() if i.icon_name}
+        for png in self.cache_dir.glob("*.png"):
+            if png.name not in referenced:
+                png.unlink(missing_ok=True)
 
     @property
     def errors(self) -> dict:
@@ -195,6 +287,16 @@ class Library:
         return dict(
             sorted(groups.items(), key=lambda kv: kv[1][0].name.lower())
         )
+
+    _APP_OVERRIDE_KEYS = (
+        "name",
+        "subtitle",
+        "developerName",
+        "localizedDescription",
+        "iconURL",
+        "tintColor",
+    )
+    _SOURCE_OVERRIDE_KEYS = ("name", "subtitle", "iconURL", "website")
 
     def source_json(
         self,
@@ -226,25 +328,36 @@ class Library:
                 if v.min_os_version:
                     entry["minOSVersion"] = v.min_os_version
                 version_entries.append(entry)
-            apps.append(
-                {
-                    "name": latest.name,
-                    "bundleIdentifier": bundle_id,
-                    "developerName": developer_name,
-                    "localizedDescription": f"{latest.name} ({bundle_id})",
-                    "iconURL": icon_url,
-                    "versions": version_entries,
-                    # Legacy single-version fields for older source parsers.
-                    "version": latest.version,
-                    "versionDate": latest.date_iso,
-                    "size": latest.size,
-                    "downloadURL": f"{base}/ipas/{latest.filename}",
-                    "appPermissions": {"entitlements": [], "privacy": {}},
-                }
-            )
-        return {
+            entry = {
+                "name": latest.name,
+                "bundleIdentifier": bundle_id,
+                "developerName": developer_name,
+                "localizedDescription": f"{latest.name} ({bundle_id})",
+                "iconURL": icon_url,
+                "versions": version_entries,
+                # Legacy single-version fields for older source parsers.
+                "version": latest.version,
+                "versionDate": latest.date_iso,
+                "size": latest.size,
+                "downloadURL": f"{base}/ipas/{latest.filename}",
+                "appPermissions": {"entitlements": [], "privacy": {}},
+            }
+            override = self.overrides.get(bundle_id)
+            if isinstance(override, dict):
+                for k in self._APP_OVERRIDE_KEYS:
+                    if k in override:
+                        entry[k] = override[k]
+                entry["_overridden"] = True
+            apps.append(entry)
+        source = {
             "name": source_name,
             "identifier": source_identifier,
             "apps": apps,
             "news": [],
         }
+        source_override = self.overrides.get("_source")
+        if isinstance(source_override, dict):
+            for k in self._SOURCE_OVERRIDE_KEYS:
+                if k in source_override:
+                    source[k] = source_override[k]
+        return source
