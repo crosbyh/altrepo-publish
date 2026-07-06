@@ -6,7 +6,8 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      - ./ipas:/data:ro
+      # Append :ro to disable adding IPAs via the web UI.
+      - ./ipas:/data
       - altrepo-cache:/cache
     environment:
       SOURCE_NAME: "Crosby's Apps"

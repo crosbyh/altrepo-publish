@@ -36,6 +36,25 @@
     border: 0; background: var(--accent); color: #fff; border-radius: 7px;
     padding: 6px 14px; font-size: 13px; font-weight: 600; cursor: pointer;
   }
+  .add-box {
+    display: none; flex-wrap: wrap; align-items: center; gap: 10px;
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 10px; padding: 10px 14px; margin: 0 0 28px;
+  }
+  .add-box.writable { display: flex; }
+  .add-box .divider { color: var(--muted); font-size: 13px; }
+  .add-box input[type="url"] {
+    flex: 1; min-width: 180px; background: var(--chip); color: var(--text);
+    border: 1px solid var(--border); border-radius: 7px; padding: 6px 10px;
+    font-size: 13px;
+  }
+  .add-box button {
+    border: 0; background: var(--accent); color: #fff; border-radius: 7px;
+    padding: 6px 14px; font-size: 13px; font-weight: 600; cursor: pointer;
+  }
+  .add-box button:disabled { opacity: 0.5; cursor: default; }
+  #add-status { font-size: 13px; color: var(--muted); width: 100%; }
+  #add-status.err { color: #d66; }
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
   .card {
     background: var(--card); border: 1px solid var(--border);
@@ -77,6 +96,15 @@
     <code id="source-url"></code>
     <button id="copy-btn">Copy</button>
   </div>
+  <div class="add-box" id="add-box">
+    <span class="muted" style="font-size:13px">Add&nbsp;app</span>
+    <input type="file" id="file-input" accept=".ipa" hidden>
+    <button id="upload-btn">Upload .ipa</button>
+    <span class="divider">or</span>
+    <input type="url" id="fetch-url" placeholder="https://example.com/app.ipa">
+    <button id="fetch-btn">Fetch URL</button>
+    <span id="add-status"></span>
+  </div>
   <div id="errors"></div>
   <div class="grid" id="grid"></div>
   <footer id="footer"></footer>
@@ -92,6 +120,7 @@ async function load() {
   ]);
   document.title = status.sourceName;
   document.getElementById("source-name").textContent = status.sourceName;
+  document.getElementById("add-box").classList.toggle("writable", !!status.writable);
   document.getElementById("counts").textContent =
     `${status.appCount} app${status.appCount === 1 ? "" : "s"} · ${status.ipaCount} IPA${status.ipaCount === 1 ? "" : "s"}`;
   document.getElementById("source-url").textContent = status.sourceURL;
@@ -128,6 +157,53 @@ async function load() {
   document.getElementById("footer").textContent =
     status.lastScan ? `Last scanned ${new Date(status.lastScan).toLocaleString()} · add this source in Feather via the URL above` : "";
 }
+
+const addStatus = (msg, isErr = false) => {
+  const el = document.getElementById("add-status");
+  el.textContent = msg;
+  el.className = isErr ? "err" : "";
+};
+
+async function submitApp(request) {
+  const buttons = [document.getElementById("upload-btn"), document.getElementById("fetch-btn")];
+  buttons.forEach(b => (b.disabled = true));
+  try {
+    const resp = await request;
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.detail || resp.statusText);
+    addStatus(`Added ${data.name} v${data.version}${data.replaced ? " (replaced existing)" : ""}`);
+    document.getElementById("fetch-url").value = "";
+    await load();
+  } catch (e) {
+    addStatus(e.message, true);
+  } finally {
+    buttons.forEach(b => (b.disabled = false));
+  }
+}
+
+document.getElementById("upload-btn").addEventListener("click", () =>
+  document.getElementById("file-input").click());
+
+document.getElementById("file-input").addEventListener("change", e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  addStatus(`Uploading ${file.name}…`);
+  const form = new FormData();
+  form.append("file", file);
+  submitApp(fetch("api/upload", { method: "POST", body: form }));
+  e.target.value = "";
+});
+
+document.getElementById("fetch-btn").addEventListener("click", () => {
+  const url = document.getElementById("fetch-url").value.trim();
+  if (!url) return addStatus("Enter a URL first", true);
+  addStatus("Downloading…");
+  submitApp(fetch("api/fetch", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url }),
+  }));
+});
 
 document.getElementById("copy-btn").addEventListener("click", async () => {
   await navigator.clipboard.writeText(document.getElementById("source-url").textContent);

@@ -9,7 +9,7 @@ COPY app ./app
 
 RUN useradd -r -u 1000 -m altrepo \
     && mkdir -p /data /cache \
-    && chown altrepo /cache
+    && chown altrepo /data /cache
 USER altrepo
 
 ENV DATA_DIR=/data CACHE_DIR=/cache

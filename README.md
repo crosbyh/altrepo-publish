@@ -13,6 +13,9 @@ AltStore, or SideStore.
   the source's `versions` array, newest first.
 - **Lazy rescans** — the folder is re-fingerprinted on each request; adding
   or replacing an IPA is picked up immediately, no restarts or watchers.
+- **Add IPAs from the web UI** — upload a file or paste a direct download
+  URL; the server validates the archive and files it as
+  `<bundle-id>-<version>.ipa`. Mount `/data` with `:ro` to disable this.
 - Designed for private networks (Tailscale, LAN). No auth is built in — put
   it behind your reverse proxy and keep it off the public internet.
 
@@ -26,7 +29,7 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      - ./ipas:/data:ro
+      - ./ipas:/data
       - altrepo-cache:/cache
     environment:
       SOURCE_NAME: "My Apps"
@@ -52,7 +55,7 @@ apps look right. Add `http://host:8080/apps.json` as a source in Feather.
 | `SOURCE_IDENTIFIER` | `local.altrepo.source` | Stable reverse-DNS ID for the source — don't change it after adding the source to devices |
 | `DEVELOPER_NAME` | `Self-hosted` | Shown as each app's developer |
 | `PUBLIC_URL` | *(derived from request)* | Force the base URL used in `apps.json`. Normally unnecessary: the server honors `X-Forwarded-Proto`/`X-Forwarded-Host` from your proxy |
-| `DATA_DIR` | `/data` | Folder scanned for `.ipa` files (mount read-only) |
+| `DATA_DIR` | `/data` | Folder scanned for `.ipa` files. With a host bind mount, the folder must be writable by uid 1000 for web-UI adds to work (or add `:ro` to disable them) |
 | `CACHE_DIR` | `/cache` | Extracted-icon cache (needs write access) |
 
 ## Endpoints
@@ -63,6 +66,8 @@ apps look right. Add `http://host:8080/apps.json` as a source in Feather.
 | `/apps.json` | The AltStore source (legacy + 2.0 fields) |
 | `/ipas/<file>` | IPA downloads |
 | `/icons/<file>` | Extracted app icons |
+| `/api/upload` | `POST` multipart `file` — add an IPA |
+| `/api/fetch` | `POST` `{"url": "https://…/app.ipa"}` — server-side download |
 | `/api/status` | JSON status incl. parse errors for bad IPAs |
 | `/health` | Liveness probe |
 

@@ -158,3 +158,92 @@ def test_http_endpoints(tmp_path, monkeypatch):
     assert client.get("/ipas/../secrets").status_code in (404, 400)
     assert client.get("/icons/default.png").headers["content-type"] == "image/png"
     assert "<html" in client.get("/").text
+
+
+def _client(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    import app.main as main
+
+    data, cache = tmp_path / "data", tmp_path / "cache"
+    data.mkdir()
+    monkeypatch.setattr(main, "DATA_DIR", data)
+    monkeypatch.setattr(main, "CACHE_DIR", cache)
+    monkeypatch.setattr(main, "library", Library(data, cache))
+    return TestClient(main.app), data
+
+
+def test_upload(tmp_path, monkeypatch):
+    client, data = _client(tmp_path, monkeypatch)
+    ipa_bytes = make_ipa(tmp_path / "src.ipa", version="1.5").read_bytes()
+
+    resp = client.post(
+        "/api/upload", files={"file": ("whatever.ipa", ipa_bytes, "application/octet-stream")}
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["bundleIdentifier"] == "com.example.demo"
+    assert body["filename"] == "com.example.demo-1.5.ipa"
+    assert not body["replaced"]
+    assert (data / "com.example.demo-1.5.ipa").is_file()
+    # re-upload of the same version reports replacement
+    resp = client.post("/api/upload", files={"file": ("w.ipa", ipa_bytes, "application/octet-stream")})
+    assert resp.json()["replaced"]
+    # and it shows up in the source
+    assert client.get("/apps.json").json()["apps"][0]["version"] == "1.5"
+
+
+def test_upload_rejects_garbage(tmp_path, monkeypatch):
+    client, data = _client(tmp_path, monkeypatch)
+    assert client.post(
+        "/api/upload", files={"file": ("x.txt", b"hi", "text/plain")}
+    ).status_code == 400
+    resp = client.post(
+        "/api/upload", files={"file": ("x.ipa", b"not a zip", "application/octet-stream")}
+    )
+    assert resp.status_code == 400
+    assert "Not a valid IPA" in resp.json()["detail"]
+    # no stray partials or ipas left behind
+    assert list(data.iterdir()) == []
+
+
+def test_fetch_url(tmp_path, monkeypatch):
+    import functools
+    import http.server
+    import threading
+
+    client, data = _client(tmp_path, monkeypatch)
+    srv_dir = tmp_path / "www"
+    srv_dir.mkdir()
+    make_ipa(srv_dir / "remote.ipa", bundle_id="com.example.fetched", version="2.1")
+
+    handler = functools.partial(
+        http.server.SimpleHTTPRequestHandler, directory=str(srv_dir)
+    )
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        url = f"http://127.0.0.1:{srv.server_address[1]}/remote.ipa"
+        resp = client.post("/api/fetch", json={"url": url})
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["filename"] == "com.example.fetched-2.1.ipa"
+        assert (data / "com.example.fetched-2.1.ipa").is_file()
+
+        assert client.post("/api/fetch", json={"url": "ftp://nope"}).status_code == 400
+        bad = client.post("/api/fetch", json={"url": url + ".missing"})
+        assert bad.status_code == 400
+        assert "Download failed" in bad.json()["detail"]
+    finally:
+        srv.shutdown()
+
+
+def test_readonly_data_dir(tmp_path, monkeypatch):
+    client, data = _client(tmp_path, monkeypatch)
+    data.chmod(0o555)
+    try:
+        assert client.get("/api/status").json()["writable"] is False
+        resp = client.post(
+            "/api/upload", files={"file": ("x.ipa", b"zz", "application/octet-stream")}
+        )
+        assert resp.status_code == 403
+    finally:
+        data.chmod(0o755)

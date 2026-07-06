@@ -1,12 +1,17 @@
 import logging
 import os
+import re
+import shutil
+import tempfile
+import urllib.request
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
+from pydantic import BaseModel
 
 from .cgbi import solid_png
-from .scanner import Library
+from .scanner import Library, extract_ipa
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
@@ -57,7 +62,76 @@ def status(request: Request) -> dict:
         "ipaCount": sum(len(v) for v in groups.values()),
         "lastScan": library.last_scan.isoformat() if library.last_scan else None,
         "errors": library.errors,
+        "writable": os.access(DATA_DIR, os.W_OK),
     }
+
+
+def _ingest_temp(tmp: Path) -> dict:
+    """Validate a just-written temp file as an IPA and move it into the
+    library under a canonical name. Deletes the temp file on failure."""
+    try:
+        info = extract_ipa(tmp)
+    except Exception as exc:
+        tmp.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail=f"Not a valid IPA: {exc}")
+    safe = lambda s: re.sub(r"[^A-Za-z0-9._-]", "_", s)
+    dest = DATA_DIR / f"{safe(info.bundle_id)}-{safe(info.version)}.ipa"
+    replaced = dest.exists()
+    os.replace(tmp, dest)
+    return {
+        "name": info.name,
+        "bundleIdentifier": info.bundle_id,
+        "version": info.version,
+        "filename": dest.name,
+        "replaced": replaced,
+    }
+
+
+def _new_temp() -> Path:
+    """Partial downloads live next to the library (same filesystem, so the
+    final move is atomic) with a suffix the scanner ignores."""
+    if not os.access(DATA_DIR, os.W_OK):
+        raise HTTPException(
+            status_code=403, detail="Data directory is read-only (mounted with :ro?)"
+        )
+    fd, name = tempfile.mkstemp(dir=DATA_DIR, suffix=".part")
+    os.close(fd)
+    return Path(name)
+
+
+@app.post("/api/upload")
+def upload(file: UploadFile = File(...)) -> dict:
+    if not (file.filename or "").lower().endswith(".ipa"):
+        raise HTTPException(status_code=400, detail="Only .ipa files are accepted")
+    tmp = _new_temp()
+    try:
+        with tmp.open("wb") as out:
+            shutil.copyfileobj(file.file, out)
+    except Exception:
+        tmp.unlink(missing_ok=True)
+        raise
+    return _ingest_temp(tmp)
+
+
+class FetchRequest(BaseModel):
+    url: str
+
+
+@app.post("/api/fetch")
+def fetch(body: FetchRequest) -> dict:
+    if not re.match(r"^https?://", body.url):
+        raise HTTPException(status_code=400, detail="URL must be http(s)")
+    tmp = _new_temp()
+    try:
+        req = urllib.request.Request(body.url, headers={"User-Agent": "altrepo-publish"})
+        with urllib.request.urlopen(req, timeout=60) as resp, tmp.open("wb") as out:
+            shutil.copyfileobj(resp, out)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        tmp.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail=f"Download failed: {exc}")
+    return _ingest_temp(tmp)
 
 
 @app.get("/icons/default.png")
