@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>altrepo-publish</title>
+<style>
+  :root {
+    --bg: #f5f5f7; --card: #ffffff; --text: #1d1d1f; --muted: #6e6e73;
+    --accent: #635bff; --border: #e3e3e8; --chip: #eeeef2;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #101014; --card: #1b1b21; --text: #f2f2f5; --muted: #9a9aa3;
+      --accent: #8b85ff; --border: #2a2a32; --chip: #26262e;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 32px 20px 64px; }
+  header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  h1 { font-size: 24px; margin: 0; }
+  .muted { color: var(--muted); }
+  .source-url {
+    display: flex; align-items: center; gap: 8px; margin: 20px 0 28px;
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 10px; padding: 10px 14px;
+  }
+  .source-url code {
+    flex: 1; overflow-x: auto; white-space: nowrap; font-size: 13px;
+  }
+  .source-url button {
+    border: 0; background: var(--accent); color: #fff; border-radius: 7px;
+    padding: 6px 14px; font-size: 13px; font-weight: 600; cursor: pointer;
+  }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+  .card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 14px; padding: 16px; display: flex; gap: 14px;
+  }
+  .card img {
+    width: 64px; height: 64px; border-radius: 14px; flex-shrink: 0;
+    background: var(--chip); object-fit: cover;
+  }
+  .card .info { min-width: 0; }
+  .card h2 { font-size: 16px; margin: 0 0 2px; }
+  .bundle {
+    font-size: 12px; color: var(--muted); overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap;
+  }
+  .meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .chip {
+    background: var(--chip); border-radius: 6px; padding: 2px 8px;
+    font-size: 12px; color: var(--muted);
+  }
+  .chip.version { color: var(--accent); font-weight: 600; }
+  .card a { color: var(--accent); font-size: 13px; text-decoration: none; }
+  .empty, .error-box {
+    background: var(--card); border: 1px dashed var(--border);
+    border-radius: 14px; padding: 40px; text-align: center; color: var(--muted);
+  }
+  .error-box { border-color: #d66; color: #d66; text-align: left; padding: 14px 18px; margin-bottom: 16px; }
+  footer { margin-top: 36px; font-size: 13px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1 id="source-name">…</h1>
+    <span class="muted" id="counts"></span>
+  </header>
+  <div class="source-url">
+    <span class="muted" style="font-size:13px">Source&nbsp;URL</span>
+    <code id="source-url"></code>
+    <button id="copy-btn">Copy</button>
+  </div>
+  <div id="errors"></div>
+  <div class="grid" id="grid"></div>
+  <footer id="footer"></footer>
+</div>
+<script>
+const fmtSize = b => b > 1048576 ? (b / 1048576).toFixed(1) + " MB" : (b / 1024).toFixed(0) + " KB";
+const esc = s => s.replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+async function load() {
+  const [status, source] = await Promise.all([
+    fetch("api/status").then(r => r.json()),
+    fetch("apps.json").then(r => r.json()),
+  ]);
+  document.title = status.sourceName;
+  document.getElementById("source-name").textContent = status.sourceName;
+  document.getElementById("counts").textContent =
+    `${status.appCount} app${status.appCount === 1 ? "" : "s"} · ${status.ipaCount} IPA${status.ipaCount === 1 ? "" : "s"}`;
+  document.getElementById("source-url").textContent = status.sourceURL;
+
+  const errNames = Object.keys(status.errors || {});
+  document.getElementById("errors").innerHTML = errNames.length
+    ? `<div class="error-box">Skipped: ${errNames.map(n => `<b>${esc(n)}</b> — ${esc(status.errors[n])}`).join("<br>")}</div>`
+    : "";
+
+  const grid = document.getElementById("grid");
+  if (!source.apps.length) {
+    grid.innerHTML = `<div class="empty" style="grid-column:1/-1">No IPAs found yet.<br>Drop <code>.ipa</code> files into the data folder and refresh.</div>`;
+  } else {
+    grid.innerHTML = source.apps.map(app => {
+      const latest = app.versions[0];
+      const older = app.versions.length - 1;
+      return `<div class="card">
+        <img src="${esc(app.iconURL)}" alt="" loading="lazy">
+        <div class="info">
+          <h2>${esc(app.name)}</h2>
+          <div class="bundle">${esc(app.bundleIdentifier)}</div>
+          <div class="meta">
+            <span class="chip version">v${esc(latest.version)}</span>
+            <span class="chip">${fmtSize(latest.size)}</span>
+            <span class="chip">${esc(latest.date)}</span>
+            ${latest.minOSVersion ? `<span class="chip">iOS ${esc(latest.minOSVersion)}+</span>` : ""}
+            ${older > 0 ? `<span class="chip">+${older} older</span>` : ""}
+          </div>
+          <div class="meta"><a href="${esc(latest.downloadURL)}">Download IPA</a></div>
+        </div>
+      </div>`;
+    }).join("");
+  }
+  document.getElementById("footer").textContent =
+    status.lastScan ? `Last scanned ${new Date(status.lastScan).toLocaleString()} · add this source in Feather via the URL above` : "";
+}
+
+document.getElementById("copy-btn").addEventListener("click", async () => {
+  await navigator.clipboard.writeText(document.getElementById("source-url").textContent);
+  const btn = document.getElementById("copy-btn");
+  btn.textContent = "Copied!";
+  setTimeout(() => (btn.textContent = "Copy"), 1500);
+});
+
+load();
+</script>
+</body>
+</html>

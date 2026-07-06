@@ -1,0 +1,19 @@
+services:
+  altrepo:
+    image: ghcr.io/crosbyh/altrepo-publish:latest
+    container_name: altrepo
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./ipas:/data:ro
+      - altrepo-cache:/cache
+    environment:
+      SOURCE_NAME: "Crosby's Apps"
+      SOURCE_IDENTIFIER: "com.crosbyhayton.altrepo"
+      DEVELOPER_NAME: "Crosby Hayton"
+      # PUBLIC_URL: "https://apps.ts.armsaw.net"  # optional; derived from
+      # forwarded headers when unset
+
+volumes:
+  altrepo-cache:
