@@ -2,6 +2,7 @@ services:
   altrepo:
     image: ghcr.io/crosbyh/altrepo-publish:latest
     container_name: altrepo
+    pull_policy: always
     restart: unless-stopped
     ports:
       - "8080:8080"

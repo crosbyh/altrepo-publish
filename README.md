@@ -134,3 +134,8 @@ DATA_DIR=./ipas CACHE_DIR=/tmp/altrepo-cache uvicorn app.main:app --reload
 Every push to `main` runs the tests and publishes
 `ghcr.io/crosbyh/altrepo-publish:latest` (linux/amd64 + linux/arm64).
 Pushing a `v*` tag additionally publishes a semver tag.
+
+The compose file sets `pull_policy: always`, so `docker compose up -d`
+re-checks the registry and picks up a newer `latest` on every start. To
+update a running deployment: `docker compose up -d` (or `docker compose
+pull && docker compose up -d` on older Compose versions).
