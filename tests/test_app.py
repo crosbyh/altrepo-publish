@@ -314,6 +314,30 @@ def test_overrides(tmp_path):
     assert "overrides.json" not in lib.errors
 
 
+def test_source_meta_env(tmp_path):
+    data, cache = tmp_path / "data", tmp_path / "cache"
+    data.mkdir()
+    make_ipa(data / "demo.ipa")
+    lib = Library(data, cache)
+    lib.refresh()
+
+    meta = {"iconURL": "https://cdn/icon.png", "tintColor": "FF2D55", "subtitle": ""}
+    src = lib.source_json("https://x", "Src", "id", "Dev", source_meta=meta)
+    assert src["iconURL"] == "https://cdn/icon.png"
+    assert src["tintColor"] == "FF2D55"
+    # empty-string values are not emitted
+    assert "subtitle" not in src
+
+    # overrides.json _source wins over the env layer
+    (data / "overrides.json").write_text(json.dumps({
+        "_source": {"iconURL": "https://cdn/override.png"},
+    }))
+    lib.refresh()
+    src = lib.source_json("https://x", "Src", "id", "Dev", source_meta=meta)
+    assert src["iconURL"] == "https://cdn/override.png"
+    assert src["tintColor"] == "FF2D55"  # untouched env key survives
+
+
 def test_delete_endpoint(tmp_path, monkeypatch):
     client, data = _client(tmp_path, monkeypatch)
     make_ipa(data / "demo.ipa")

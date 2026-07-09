@@ -296,7 +296,15 @@ class Library:
         "iconURL",
         "tintColor",
     )
-    _SOURCE_OVERRIDE_KEYS = ("name", "subtitle", "iconURL", "website")
+    _SOURCE_OVERRIDE_KEYS = (
+        "name",
+        "subtitle",
+        "description",
+        "iconURL",
+        "headerURL",
+        "tintColor",
+        "website",
+    )
 
     def source_json(
         self,
@@ -304,6 +312,7 @@ class Library:
         source_name: str,
         source_identifier: str,
         developer_name: str,
+        source_meta: Optional[dict] = None,
     ) -> dict:
         base = base_url.rstrip("/")
         apps = []
@@ -355,6 +364,12 @@ class Library:
             "apps": apps,
             "news": [],
         }
+        # Deploy-level branding from env vars is the base layer...
+        if source_meta:
+            for k in self._SOURCE_OVERRIDE_KEYS:
+                if source_meta.get(k):
+                    source[k] = source_meta[k]
+        # ...and the overrides.json _source block wins on top of it.
         source_override = self.overrides.get("_source")
         if isinstance(source_override, dict):
             for k in self._SOURCE_OVERRIDE_KEYS:

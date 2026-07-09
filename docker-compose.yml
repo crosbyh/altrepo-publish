@@ -16,6 +16,14 @@ services:
       SOURCE_NAME: "Crosby's Apps"
       SOURCE_IDENTIFIER: "com.crosbyhayton.altrepo"
       DEVELOPER_NAME: "Crosby Hayton"
+      # Source branding shown in Feather/AltStore. iconURL/headerURL may be a
+      # full URL or a relative path served from ./ipas/branding (see below).
+      # SOURCE_ICON_URL: "/branding/icon.png"
+      # SOURCE_HEADER_URL: "/branding/header.png"
+      # SOURCE_TINT_COLOR: "FF2D55"
+      # SOURCE_SUBTITLE: "Self-hosted IPAs"
+      # SOURCE_DESCRIPTION: "My personal app collection"
+      # SOURCE_WEBSITE: "https://apps.ts.armsaw.net"
       # KEEP_VERSIONS: "3"           # prune to the newest 3 versions per app
       # TRACKER_INTERVAL_HOURS: "6"  # GitHub release polling; 0 disables
       # GITHUB_TOKEN: "ghp_..."      # optional, for rate limits/private repos

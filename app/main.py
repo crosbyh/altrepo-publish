@@ -1,6 +1,7 @@
 import asyncio
 import io
 import logging
+import mimetypes
 import os
 import re
 import shutil
@@ -26,6 +27,18 @@ CACHE_DIR = Path(os.environ.get("CACHE_DIR", "/cache"))
 SOURCE_NAME = os.environ.get("SOURCE_NAME", "My IPA Library")
 SOURCE_IDENTIFIER = os.environ.get("SOURCE_IDENTIFIER", "local.altrepo.source")
 DEVELOPER_NAME = os.environ.get("DEVELOPER_NAME", "Self-hosted")
+BRANDING_DIR = DATA_DIR / "branding"
+# Deploy-level source branding. Only keys with a value are emitted. iconURL and
+# headerURL may be given as a relative path (e.g. /branding/icon.png), which is
+# resolved against the request's base URL at serve time.
+_SOURCE_META_ENV = {
+    "subtitle": os.environ.get("SOURCE_SUBTITLE", ""),
+    "description": os.environ.get("SOURCE_DESCRIPTION", ""),
+    "iconURL": os.environ.get("SOURCE_ICON_URL", ""),
+    "headerURL": os.environ.get("SOURCE_HEADER_URL", ""),
+    "tintColor": os.environ.get("SOURCE_TINT_COLOR", ""),
+    "website": os.environ.get("SOURCE_WEBSITE", ""),
+}
 # Optional override; by default URLs are derived from the incoming request
 # (uvicorn runs with --proxy-headers, so X-Forwarded-Proto/Host are honored).
 PUBLIC_URL = os.environ.get("PUBLIC_URL", "").rstrip("/")
@@ -71,6 +84,16 @@ def _base_url(request: Request) -> str:
     return PUBLIC_URL or str(request.base_url).rstrip("/")
 
 
+def _source_meta(base_url: str) -> dict:
+    """Env branding with any relative icon/header URLs resolved to absolute."""
+    meta = {k: v for k, v in _SOURCE_META_ENV.items() if v}
+    for k in ("iconURL", "headerURL"):
+        v = meta.get(k)
+        if v and not re.match(r"^https?://", v):
+            meta[k] = f"{base_url}/{v.lstrip('/')}"
+    return meta
+
+
 def _require_writable() -> None:
     if not os.access(DATA_DIR, os.W_OK):
         raise HTTPException(
@@ -86,9 +109,14 @@ def index() -> FileResponse:
 @app.get("/apps.json")
 def apps_json(request: Request) -> JSONResponse:
     library.refresh()
+    base = _base_url(request)
     return JSONResponse(
         library.source_json(
-            _base_url(request), SOURCE_NAME, SOURCE_IDENTIFIER, DEVELOPER_NAME
+            base,
+            SOURCE_NAME,
+            SOURCE_IDENTIFIER,
+            DEVELOPER_NAME,
+            source_meta=_source_meta(base),
         )
     )
 
@@ -185,6 +213,13 @@ def default_icon() -> Response:
 @app.get("/icons/{name}")
 def icon(name: str) -> FileResponse:
     return FileResponse(_safe_child(CACHE_DIR, name), media_type="image/png")
+
+
+@app.get("/branding/{name}")
+def branding(name: str) -> FileResponse:
+    path = _safe_child(BRANDING_DIR, name)
+    media_type = mimetypes.guess_type(name)[0] or "application/octet-stream"
+    return FileResponse(path, media_type=media_type)
 
 
 @app.get("/ipas/{name}")
