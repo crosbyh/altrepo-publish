@@ -1,10 +1,13 @@
 """Track upstream GitHub repos and auto-download IPA release assets.
 
 Config and state live together in DATA_DIR/trackers.json:
-  {"trackers": [{"repo": "owner/name", "pattern": null, "lastRelease": "v1.2"}]}
+  {"trackers": [{"repo": "owner/name", "pattern": null, "prerelease": false,
+                 "lastRelease": "v1.2"}]}
 
 `pattern` optionally narrows asset filenames; by default every `.ipa`
-asset of the latest (non-draft, non-prerelease) release is ingested.
+asset of the newest non-draft, non-prerelease release is ingested.
+`prerelease` opts a tracker into pre-releases, for repos (e.g.
+OatmealDome/dolphin-ios) that never publish a full release.
 """
 
 import json
@@ -51,12 +54,21 @@ class TrackerStore:
             raise PermissionError("data directory is read-only")
         self.path.write_text(json.dumps({"trackers": trackers}, indent=2) + "\n")
 
-    def add(self, repo: str, pattern: Optional[str] = None) -> None:
+    def add(
+        self, repo: str, pattern: Optional[str] = None, prerelease: bool = False
+    ) -> None:
         with self._lock:
             trackers = self.load()
             if any(t["repo"].lower() == repo.lower() for t in trackers):
                 raise ValueError(f"{repo} is already tracked")
-            trackers.append({"repo": repo, "pattern": pattern, "lastRelease": None})
+            trackers.append(
+                {
+                    "repo": repo,
+                    "pattern": pattern,
+                    "prerelease": prerelease,
+                    "lastRelease": None,
+                }
+            )
             self._save(trackers)
 
     def remove(self, repo: str) -> bool:
@@ -92,9 +104,21 @@ class TrackerStore:
     def _check_one(self, tracker: dict) -> dict:
         repo = tracker["repo"]
         with urllib.request.urlopen(
-            self._request(f"{self.api_base}/repos/{repo}/releases/latest"), timeout=30
+            self._request(f"{self.api_base}/repos/{repo}/releases?per_page=30"),
+            timeout=30,
         ) as resp:
-            release = json.loads(resp.read())
+            releases = json.loads(resp.read())
+        release = next(
+            (
+                r
+                for r in releases
+                if not r.get("draft")
+                and (tracker.get("prerelease") or not r.get("prerelease"))
+            ),
+            None,
+        )
+        if release is None:
+            return {"repo": repo, "release": None, "status": "no-release", "added": []}
         tag = release.get("tag_name") or ""
         if tag == tracker.get("lastRelease"):
             return {"repo": repo, "release": tag, "status": "up-to-date", "added": []}

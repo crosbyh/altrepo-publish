@@ -208,6 +208,7 @@ def delete_ipa(name: str) -> dict:
 class TrackerRequest(BaseModel):
     repo: str
     pattern: Optional[str] = None
+    prerelease: bool = False
 
 
 @app.get("/api/trackers")
@@ -226,7 +227,7 @@ def add_tracker(body: TrackerRequest) -> dict:
             raise HTTPException(status_code=400, detail=f"Bad pattern: {exc}")
     _require_writable()
     try:
-        trackers.add(body.repo, body.pattern)
+        trackers.add(body.repo, body.pattern, body.prerelease)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return {"ok": True}

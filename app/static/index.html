@@ -175,6 +175,7 @@
     <span class="label">Track&nbsp;GitHub</span>
     <input type="text" id="tracker-repo" placeholder="owner/repo">
     <input type="text" id="tracker-pattern" placeholder="asset regex (optional)">
+    <label style="font-size:13px;white-space:nowrap"><input type="checkbox" id="tracker-prerelease"> pre-releases</label>
     <button class="primary" id="tracker-add">Track</button>
     <button class="primary" id="tracker-check">Check now</button>
     <span class="status-line" id="tracker-status"></span>
@@ -418,6 +419,7 @@ async function loadTrackers() {
       <b>${esc(t.repo)}</b>
       <span class="chip">${t.lastRelease ? esc(t.lastRelease) : "never checked"}</span>
       ${t.pattern ? `<span class="chip">/${esc(t.pattern)}/</span>` : ""}
+      ${t.prerelease ? `<span class="chip">pre-releases</span>` : ""}
       ${data.errors[t.repo] ? `<span class="err-text">${esc(data.errors[t.repo])}</span>` : ""}
       <a href="#" class="danger" style="margin-left:auto;font-size:13px" data-untrack="${esc(t.repo)}">Remove</a>
     </div>`).join("");
@@ -436,15 +438,17 @@ $("tracker-rows").addEventListener("click", async e => {
 $("tracker-add").addEventListener("click", async () => {
   const repo = $("tracker-repo").value.trim();
   const pattern = $("tracker-pattern").value.trim() || null;
+  const prerelease = $("tracker-prerelease").checked;
   if (!repo) return setStatus("tracker-status", "Enter owner/repo first", true);
   const resp = await fetch("api/trackers", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ repo, pattern }),
+    body: JSON.stringify({ repo, pattern, prerelease }),
   });
   const data = await resp.json();
   if (!resp.ok) return setStatus("tracker-status", data.detail || resp.statusText, true);
   $("tracker-repo").value = ""; $("tracker-pattern").value = "";
+  $("tracker-prerelease").checked = false;
   setStatus("tracker-status", `Tracking ${repo} — hit "Check now" to fetch the latest release`);
   await loadTrackers();
 });

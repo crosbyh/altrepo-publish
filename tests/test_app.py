@@ -351,8 +351,8 @@ class _GHHandler(http.server.BaseHTTPRequestHandler):
         pass
 
     def do_GET(self):
-        if self.path.endswith("/releases/latest"):
-            body = json.dumps(self.server.release).encode()
+        if "/releases" in self.path:
+            body = json.dumps(self.server.releases).encode()
             ctype = "application/json"
         elif self.path.startswith("/dl/"):
             name = self.path.rsplit("/", 1)[-1]
@@ -374,7 +374,7 @@ class _GHHandler(http.server.BaseHTTPRequestHandler):
 
 def _fake_github():
     srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _GHHandler)
-    srv.release, srv.files, srv.hits = {}, {}, {}
+    srv.releases, srv.files, srv.hits = [], {}, {}
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     return srv, f"http://127.0.0.1:{srv.server_address[1]}"
 
@@ -387,13 +387,13 @@ def test_tracker_store(tmp_path):
         srv.files["App.ipa"] = make_ipa(
             tmp_path / "t1.ipa", bundle_id="com.example.tracked", version="1.0"
         ).read_bytes()
-        srv.release = {
+        srv.releases = [{
             "tag_name": "v1.0",
             "assets": [
                 {"name": "App.ipa", "browser_download_url": f"{base}/dl/App.ipa"},
                 {"name": "notes.txt", "browser_download_url": f"{base}/dl/notes.txt"},
             ],
-        }
+        }]
         store = TrackerStore(data, api_base=base)
         store.add("o/r")
         result = store.check_all()[0]
@@ -409,7 +409,7 @@ def test_tracker_store(tmp_path):
         assert srv.hits["App.ipa"] == 1
 
         # new release triggers a download
-        srv.release["tag_name"] = "v2.0"
+        srv.releases[0]["tag_name"] = "v2.0"
         srv.files["App.ipa"] = make_ipa(
             tmp_path / "t2.ipa", bundle_id="com.example.tracked", version="2.0"
         ).read_bytes()
@@ -436,13 +436,13 @@ def test_tracker_pattern_and_errors(tmp_path):
         srv.files["App-B.ipa"] = make_ipa(
             tmp_path / "b.ipa", bundle_id="com.example.b", version="1.0"
         ).read_bytes()
-        srv.release = {
+        srv.releases = [{
             "tag_name": "v1.0",
             "assets": [
                 {"name": "App-A.ipa", "browser_download_url": f"{base}/dl/App-A.ipa"},
                 {"name": "App-B.ipa", "browser_download_url": f"{base}/dl/App-B.ipa"},
             ],
-        }
+        }]
         store = TrackerStore(data, api_base=base)
         store.add("o/r", pattern="B")
         assert store.check_all()[0]["status"] == "updated"
@@ -456,6 +456,57 @@ def test_tracker_pattern_and_errors(tmp_path):
         results = bad_store.check_all()
         assert all(r["status"] == "error" for r in results)
         assert "o/r" in bad_store.errors
+    finally:
+        srv.shutdown()
+
+
+def test_tracker_prerelease(tmp_path):
+    """Repos that only publish pre-releases (e.g. dolphin-ios) need opt-in."""
+    data = tmp_path / "data"
+    data.mkdir()
+    srv, base = _fake_github()
+    try:
+        srv.files["App.ipa"] = make_ipa(
+            tmp_path / "t1.ipa", bundle_id="com.example.pre", version="1.0"
+        ).read_bytes()
+        srv.releases = [
+            {"tag_name": "v1.0-draft", "draft": True, "assets": []},
+            {
+                "tag_name": "v1.0b1",
+                "prerelease": True,
+                "assets": [
+                    {"name": "App.ipa", "browser_download_url": f"{base}/dl/App.ipa"}
+                ],
+            },
+        ]
+        store = TrackerStore(data, api_base=base)
+
+        # default tracker skips drafts and pre-releases: nothing eligible
+        store.add("o/r")
+        assert store.check_all()[0]["status"] == "no-release"
+        assert "App.ipa" not in srv.hits
+        store.remove("o/r")
+
+        # opted-in tracker picks the pre-release (still never a draft)
+        store.add("o/r", prerelease=True)
+        result = store.check_all()[0]
+        assert result["status"] == "updated"
+        assert result["release"] == "v1.0b1"
+        assert (data / "com.example.pre-1.0.ipa").is_file()
+
+        # a later stable release wins over an older pre-release
+        srv.files["App.ipa"] = make_ipa(
+            tmp_path / "t2.ipa", bundle_id="com.example.pre", version="2.0"
+        ).read_bytes()
+        srv.releases.insert(0, {
+            "tag_name": "v2.0",
+            "assets": [
+                {"name": "App.ipa", "browser_download_url": f"{base}/dl/App.ipa"}
+            ],
+        })
+        result = store.check_all()[0]
+        assert result["status"] == "updated"
+        assert result["release"] == "v2.0"
     finally:
         srv.shutdown()
 
